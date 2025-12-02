@@ -1,0 +1,134 @@
+POST http://localhost:3280/api/invoice/create
+Content-Type: application/json
+
+{
+  "server": "http:localhost",
+  "port": 5000,
+  "username": "Admin",
+  "company":"DPLUS",
+  "password": "admin",
+  "companyId":"1371c528-7463-43c0-a134-5bed1c7505aa",
+  "invoice": {
+    "Date": "/Date(1763962039000+0200)/",
+    "CustomerCode": "Test customer",
+    "Reference": "REF-TEST-003",
+    "Description": "Test Invoice",
+    "TransactionCode": "IN",
+    "Amount": 1500
+  }
+}
+
+###
+POST http://localhost:3280/api/invoice/batch
+Content-Type: application/json
+
+{
+  "server": "http:localhost",
+  "port": "5000",
+  "company":"DPLUS",
+ "username": "Admin",
+  "password": "admin",
+  "companyId":"1371c528-7463-43c0-a134-5bed1c7505aa",
+  "invoices": [
+    {
+      "CustomerCode": "CASH",
+      "Reference": "BATCH-001",
+      "Amount": 2000,
+      "Description": "Test 1",
+      "TransactionCode": "IN",
+      "Date": "/Date(1764000000000+0200)/"
+    },
+    {
+      "CustomerCode": "Test customer",
+      "Reference": "BATCH-002",
+      "Amount": 3500,
+      "Description": "Test 2",
+      "TransactionCode": "IN",
+      "Date": "/Date(1764000000000+0200)/"
+    },
+    {
+      "CustomerCode": "Test customer",
+      "Reference": "BATCH-002",
+      "Amount": 3500,
+      "Description": "Test 2",
+      "TransactionCode": "INV",
+      "Date": "/Date(1764000000000+0200)/"
+    }
+  ]
+}
+
+
+###
+# POST http://localhost:3280/api/invoice/get
+# Content-Type: application/json
+
+# {
+#   "id": 8,
+#   "server": "http://localhost",
+#   "port": 5000,
+#   "username": "Admin",
+#   "password": "admin"
+# }
+
+
+###
+POST http://localhost:3280/api/customers/list
+Content-Type: application/json
+
+{
+  "server": "http://localhost",
+  "port": "5000",
+  "username": "Admin",
+  "password": "admin"
+}
+
+
+###
+POST http://localhost:3280/api/customers/list/Test customer
+Content-Type: application/json
+
+{
+  "server": "http://localhost",
+  "port": "5000",
+  "username": "Admin",
+  "password": "admin"
+}
+
+
+###
+POST http://localhost:3280/api/invoices/list
+Content-Type: application/json
+
+{
+  "server": "http://localhost",
+  "port": "5000",
+  "username": "Admin",
+  "password": "admin"
+}
+
+
+###
+POST http://localhost:3280/api/customer_invoices/list
+Content-Type: application/json
+
+{
+  "server": "http://localhost",
+  "port": "5000",
+  "username": "Admin",
+  "password": "admin",
+  "accountCode":"CASH"
+}
+
+
+###
+POST http://localhost:3280/api/invoice/ref/get
+Content-Type: application/json
+
+{
+  "server": "http://localhost",
+  "port": "5000",
+  "username": "Admin",
+  "password": "admin",
+  "account":"CASH",
+  "reference":"BATCH-001"
+}
