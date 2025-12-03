@@ -108,20 +108,19 @@ Content-Type: application/json
 
 
 ###
-POST http://localhost:3280/api/customer_invoices/list
+POST http://localhost:3280/api/customer_invoices/list/CASH
 Content-Type: application/json
 
 {
   "server": "http://localhost",
   "port": "5000",
   "username": "Admin",
-  "password": "admin",
-  "accountCode":"CASH"
+  "password": "admin"
 }
 
 
 ###
-POST http://localhost:3280/api/invoice/ref/get
+POST http://localhost:3280/api/invoice/ref/get/CASH
 Content-Type: application/json
 
 {
@@ -129,6 +128,5 @@ Content-Type: application/json
   "port": "5000",
   "username": "Admin",
   "password": "admin",
-  "account":"CASH",
   "reference":"BATCH-001"
 }

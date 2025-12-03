@@ -492,7 +492,7 @@ async function getCustomerInvoicesHelper(
   accountCode
 ) {
   let page = 1;
-  const pageSize = 100;
+  const pageSize = 1000000;
   let allInvoices = [];
   const company = process.env.COMPANY_NAME;
   while (true) {
@@ -530,8 +530,8 @@ async function getCustomerInvoicesHelper(
 // -------------------------------
 async function getCustomerInvoices(req, res) {
   try {
-    const { server, port, username, password, accountCode } = req.body;
-
+    const { server, port, username, password } = req.body;
+    const accountCode = req.params.cuscode;
     if (!server || !port || !username || !password || !accountCode) {
       return res.status(400).json({
         success: false,
@@ -712,7 +712,8 @@ async function xmlToJson(xmlString) {
 // -------------------------------
 async function getInvoiceByReference(req, res) {
   try {
-    const { server, port, username, password, account, reference } = req.body;
+    const { server, port, username, password, reference } = req.body;
+    const account = req.params.cuscode;
     const company = process.env.COMPANY_NAME;
     if (!server || !port || !username || !password || !account || !reference) {
       return res.status(400).json({
