@@ -8,6 +8,7 @@ const {
   getAllInvoices,
   getCustomerInvoices,
   getInvoiceByReference,
+  fetchInventoryController,
 } = require("../invoiceController");
 
 router.post("/invoice/create", createInvoiceController); //
@@ -23,5 +24,7 @@ router.post("/invoice/ref/get/:cuscode", getInvoiceByReference); //
 router.post("/customers/list/:cuscode", getAllCustomers); //
 
 router.post("/customers/list", getAllCustomers); //
+
+router.post("/inventory/list", fetchInventoryController); //
 
 module.exports = router;

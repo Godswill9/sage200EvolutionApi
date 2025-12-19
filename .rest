@@ -1,22 +1,183 @@
 POST http://localhost:3280/api/invoice/create
 Content-Type: application/json
-
 {
-  "server": "http:localhost",
-  "port": 5000,
+  "server": "http://localhost",
+  "port": "5000",
   "username": "Admin",
-  "company":"DPLUS",
   "password": "admin",
-  "companyId":"1371c528-7463-43c0-a134-5bed1c7505aa",
-  "invoice": {
+    "invoice": {
     "Date": "/Date(1763962039000+0200)/",
-    "CustomerCode": "Test customer",
-    "Reference": "REF-TEST-003",
+    "CustomerCode": "CASH",
+    "Reference": "REF-TEweST3-0132",
     "Description": "Test Invoice",
     "TransactionCode": "IN",
-    "Amount": 1500
+    "Amount": 1500,
+     "LineItems": [
+      {
+        "description": "Service Item 1",
+        "stockCodeId": 1,
+        "warehouseId": 0,
+        "taxTypeId": 1,
+        "quantity": 4,
+        "pricing": {
+          "unitPriceExcl": 193.86,
+          "unitPriceIncl": 221.00,
+          "discountPercent": 0,
+          "taxRate": 14
+        },
+          "taxAmount": 108.56,
+        "uom": {
+          "uomId": 0,
+          "uomCategoryId": 0,
+          "stockingUomId": 0
+        },
+        "flags": {
+          "isWarehouseItem": false,
+          "isSerialItem": false,
+          "isLotItem": false
+        },
+        "delivery": {
+          "deliveryDate": "2025-12-01T00:00:00.000Z",
+          "quantityForDelivery": 4
+        },
+        "details": {
+          "lotNumber": null,
+          "binLocationId": 0,
+          "matrixId": null,
+          "attributes": null
+        }
+      }
+    ]
   }
 }
+
+  # "LineItems": [
+  #     {
+  #       "description": "Service Item 1",
+  #       "stockCodeId": 1,
+  #       "warehouseId": 0,
+  #       "taxTypeId": 1,
+  #       "quantity": 4,
+  #       "pricing": {
+  #         "unitPriceExcl": 193.86,
+  #         "unitPriceIncl": 221.00,
+  #         "discountPercent": 0,
+  #         "taxRate": 14
+  #       },
+  #         "taxAmount": 108.56,
+  #       "uom": {
+  #         "uomId": 0,
+  #         "uomCategoryId": 0,
+  #         "stockingUomId": 0
+  #       },
+  #       "flags": {
+  #         "isWarehouseItem": false,
+  #         "isSerialItem": false,
+  #         "isLotItem": false
+  #       },
+  #       "delivery": {
+  #         "deliveryDate": "2025-12-01T00:00:00.000Z",
+  #         "quantityForDelivery": 4
+  #       },
+  #       "details": {
+  #         "lotNumber": null,
+  #         "binLocationId": 0,
+  #         "matrixId": null,
+  #         "attributes": null
+  #       }
+  #     }
+  #   ]
+
+
+
+# line items payload sample
+# [
+#   {
+#     "description": "Service Item 1",
+#     "stockCodeId": 1,
+#     "warehouseId": 0,
+#     "taxTypeId": 1,
+#     "quantity": {
+#       "ordered": 4,
+#       "toProcess": 4,
+#       "processed": 4
+#     },
+#     "pricing": {
+#       "unitPriceExcl": 193.86,
+#       "unitPriceIncl": 221.00,
+#       "discountPercent": 0,
+#       "taxRate": 14
+#     },
+#     "totals": {
+#       "lineTotalExcl": 775.44,
+#       "lineTotalIncl": 884.00,
+#       "taxAmount": 108.56
+#     },
+#     "uom": {
+#       "uomId": 0,
+#       "uomCategoryId": 0,
+#       "stockingUomId": 0
+#     },
+#     "flags": {
+#       "isWarehouseItem": false,
+#       "isSerialItem": false,
+#       "isLotItem": false
+#     },
+#     "delivery": {
+#       "deliveryDate": "2025-12-01T00:00:00.000Z",
+#       "quantityForDelivery": 4
+#     },
+#     "details": {
+#       "lotNumber": null,
+#       "binLocationId": 0,
+#       "matrixId": null,
+#       "attributes": null
+#     }
+#   },
+#   {
+#     "description": "Service Item 2",
+#     "stockCodeId": 2,
+#     "warehouseId": 0,
+#     "taxTypeId": 1,
+#     "quantity": {
+#       "ordered": 2,
+#       "toProcess": 2,
+#       "processed": 2
+#     },
+#     "pricing": {
+#       "unitPriceExcl": 150,
+#       "unitPriceIncl": 171,
+#       "discountPercent": 0,
+#       "taxRate": 14
+#     },
+#     "totals": {
+#       "lineTotalExcl": 300,
+#       "lineTotalIncl": 342,
+#       "taxAmount": 42
+#     },
+#     "uom": {
+#       "uomId": 0,
+#       "uomCategoryId": 0,
+#       "stockingUomId": 0
+#     },
+#     "flags": {
+#       "isWarehouseItem": true,
+#       "isSerialItem": false,
+#       "isLotItem": false
+#     },
+#     "delivery": {
+#       "deliveryDate": "2025-12-05T00:00:00.000Z",
+#       "quantityForDelivery": 2
+#     },
+#     "details": {
+#       "lotNumber": null,
+#       "binLocationId": 0,
+#       "matrixId": null,
+#       "attributes": null
+#     }
+#   }
+# ]
+
 
 ###
 POST http://localhost:3280/api/invoice/batch
