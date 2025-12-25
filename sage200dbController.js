@@ -46,7 +46,8 @@ async function createInvoiceLines(
   user,
   password,
   host,
-  database
+  database,
+  lineId
 ) {
   if (!Number.isInteger(invoiceId)) {
     throw new Error("invoiceId must be an integer (iInvoiceID)");
@@ -128,7 +129,13 @@ async function createInvoiceLines(
         bIsLotItem,
         dDeliveryDate,
         fQtyForDelivery,
-        cLineNotes
+        cLineNotes,
+        fTaxRate,
+        fQtyForDeliveryUR, 
+        fQtyProcessedUR, 
+        fQtyLastProcessUR, 
+        fQuantityUR, 
+        iLineID
       ) VALUES (
         @invoiceId, @description, @stockCodeId, @warehouseId, @taxTypeId,
         @fQuantity, @fQtyToProcess, @fQtyLastProcess, @fQtyProcessed,
@@ -146,7 +153,7 @@ async function createInvoiceLines(
         @fUnitPriceExclForeign, @fUnitPriceInclForeign, @fUnitCost,
         @iUnitsOfMeasureID, @iUnitsOfMeasureCategoryID, @iUnitsOfMeasureStockingID,
         @bIsWhseItem, @bIsSerialItem, @bIsLotItem,
-        @dDeliveryDate, @fQtyForDelivery, @cLineNotes
+        @dDeliveryDate, @fQtyForDelivery, @cLineNotes, @fTaxRate, @fQtyForDeliveryUR, @fQtyProcessedUR, @fQtyLastProcessUR, @fQuantityUR, @iLineID
       )
     `;
 
@@ -158,7 +165,7 @@ async function createInvoiceLines(
       .input("warehouseId", sql.Int, warehouseId)
       .input("taxTypeId", sql.Int, taxTypeId)
       .input("fQuantity", sql.Float, quantity || 0)
-      .input("fQtyToProcess", sql.Float, quantity || 0)
+      .input("fQtyToProcess", sql.Float, 0)
       .input("fQtyLastProcess", sql.Float, quantity || 0)
       .input("fQtyProcessed", sql.Float, quantity || 0)
       .input("fUnitPriceExcl", sql.Float, pricing?.unitPriceExcl || 0)
@@ -254,6 +261,12 @@ async function createInvoiceLines(
       .input("dDeliveryDate", sql.DateTime, delivery?.deliveryDate || null)
       .input("fQtyForDelivery", sql.Float, quantity || 0)
       .input("cLineNotes", sql.NVarChar, "")
+      .input("fTaxRate", sql.Float, pricing.taxRate || 0)
+      .input("fQtyForDeliveryUR", sql.Float, quantity || 0)
+      .input("fQtyProcessedUR", sql.Float, quantity || 0)
+      .input("fQtyLastProcessUR", sql.Float, quantity || 0)
+      .input("fQuantityUR", sql.Float, quantity || 0)
+      .input("iLineID", sql.Float, lineId || 0)
       .query(query);
   }
 
@@ -296,3 +309,7 @@ module.exports = {
   getFullInvoice,
   createInvoiceLines,
 };
+
+//things to do
+//1. update the id rightly to get the previous ID number and add by 1 (line item)
+//2. the details should also populate well

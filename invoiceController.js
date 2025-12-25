@@ -151,22 +151,38 @@ const { createInvoiceLines, getFullInvoice } = require("./sage200dbController");
 //   }
 // }
 
+function calculateTotals(lines) {
+  const TAX_RATE = 0.14; // 14%
+
+  let totalExcl = 0;
+  let totalTax = 0;
+
+  for (const line of lines) {
+    const qty = Number(line.Quantity) || 0;
+    const unitPrice = Number(line.UnitPrice) || 0;
+    const lineTotal = qty * unitPrice;
+
+    totalExcl += lineTotal;
+
+    // Tax codes 1–5 = 14%, 6–7 = 0%
+    const taxCode = Number(line.TaxCode);
+    const tax = taxCode >= 1 && taxCode <= 5 ? lineTotal * TAX_RATE : 0;
+
+    totalTax += tax;
+  }
+
+  return {
+    totalTaxExclusive: Number(totalExcl.toFixed(2)),
+    totalTax: Number(totalTax.toFixed(2)),
+    totalTaxInclusive: Number((totalExcl + totalTax).toFixed(2)),
+  };
+}
+
 async function createInvoiceController(req, res) {
   try {
-    const {
-      invoice,
-      server,
-      port,
-      username,
-      password,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName,
-    } = req.body; // add lineItems
+    const { invoice, server, port, username, password } = req.body; // add lineItems
     const companyId = process.env.COMPANY_ID;
     const company = process.env.COMPANY_NAME;
-    const lineItems = invoice.LineItems;
     if (!invoice || !server || !port || !username || !password) {
       return res.status(400).json({
         success: false,
@@ -174,12 +190,12 @@ async function createInvoiceController(req, res) {
       });
     }
 
-    const { CustomerCode, Reference } = invoice;
+    const { CustomerAccountCode, OrderNo } = invoice;
 
     // =============================================================
     // A. Check if customer exists
     // =============================================================
-    const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerCode}`;
+    const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerAccountCode}`;
     const customerResponse = await axios.get(customerUrl, {
       auth: { username, password },
     });
@@ -196,8 +212,8 @@ async function createInvoiceController(req, res) {
     // B. Prevent duplicates
     // =============================================================
     const [existing] = await db.query(
-      "SELECT id FROM invoice_logs WHERE reference = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
-      [Reference, CustomerCode]
+      "SELECT id FROM invoice_logs WHERE OrderNo = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
+      [OrderNo, CustomerAccountCode]
     );
 
     if (existing.length > 0) {
@@ -206,24 +222,35 @@ async function createInvoiceController(req, res) {
         .json({ success: false, message: "Duplicate invoice detected" });
     }
 
+    function extractInvoiceReference(response) {
+      if (!response?.ID) return null;
+
+      const match = response.ID.match(/Reference:([^|]+)/);
+      return match ? match[1].trim() : null;
+    }
+
     // =============================================================
     // C. POST INVOICE TO SAGE 200
     // =============================================================
-    const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionPost`;
-    const payload = { CustomerTransactionPost: invoice };
-
+    const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/SalesOrderProcessInvoice`;
+    const payload = { SalesOrder: invoice };
+    let reference;
     let sageResponse;
     try {
       const response = await axios.post(postUrl, payload, {
         auth: { username, password },
       });
       sageResponse = response.data;
+      reference = extractInvoiceReference(sageResponse);
+
       if (typeof sageResponse === "string" && sageResponse.includes("<Fault")) {
         await saveInvoiceLog({
-          reference: Reference,
+          reference: reference,
           companyId,
-          customerCode: CustomerCode,
-          amount: invoice.Amount,
+          customerCode: CustomerAccountCode,
+          orderNo: OrderNo,
+          amount: calculateTotals(invoice.Lines).totalTaxExclusive,
+          amountWithTax: calculateTotals(invoice.Lines).totalTaxInclusive,
           status: "failed",
           payload: invoice,
           sageResponse,
@@ -237,10 +264,12 @@ async function createInvoiceController(req, res) {
 
       if (sageResponse.HasError) {
         await saveInvoiceLog({
-          reference: Reference,
+          reference: reference,
           companyId,
-          customerCode: CustomerCode,
-          amount: invoice.Amount,
+          customerCode: CustomerAccountCode,
+          orderNo: OrderNo,
+          amount: calculateTotals(invoice.Lines).totalTaxExclusive,
+          amountWithTax: calculateTotals(invoice.Lines).totalTaxInclusive,
           status: "failed",
           payload: invoice,
           sageResponse,
@@ -253,10 +282,12 @@ async function createInvoiceController(req, res) {
       }
     } catch (err) {
       await saveInvoiceLog({
-        reference: Reference,
+        reference: reference,
         companyId,
-        customerCode: CustomerCode,
-        amount: invoice.Amount,
+        customerCode: CustomerAccountCode,
+        orderNo: OrderNo,
+        amount: calculateTotals(invoice.Lines).totalTaxExclusive,
+        amountWithTax: calculateTotals(invoice.Lines).totalTaxInclusive,
         status: "failed",
         payload: invoice,
         sageResponse: { error: err.message },
@@ -272,36 +303,17 @@ async function createInvoiceController(req, res) {
     // D. SUCCESS - Save invoice in logs
     // =============================================================
     const savedInvoice = await saveInvoiceLog({
-      reference: Reference,
+      reference: reference,
       companyId,
-      customerCode: CustomerCode,
-      amount: invoice.Amount,
+      customerCode: CustomerAccountCode,
+      orderNo: OrderNo,
+      amount: calculateTotals(invoice.Lines).totalTaxExclusive,
+      amountWithTax: calculateTotals(invoice.Lines).totalTaxInclusive,
       status: "posted",
       sageAuditNumber: sageResponse.ID || null,
       payload: invoice,
       sageResponse,
     });
-
-    // =============================================================
-    // E. CREATE LINE ITEMS IN DATABASE
-    // =============================================================
-    const match = sageResponse.ID.match(/ID:(\d+)/);
-    if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
-      if (match) {
-        const id = parseInt(match[1], 10);
-        await createInvoiceLines(
-          id,
-          lineItems,
-          sageDbUser,
-          sageDbPass,
-          sageDbHost,
-          sageDbName
-        ); // id from invoice log
-        console.log(id); // 38
-      } else {
-        console.log("ID not found");
-      }
-    }
 
     return res.status(200).json({
       success: true,
@@ -317,44 +329,74 @@ async function createInvoiceController(req, res) {
   }
 }
 
-// async function createBatchInvoiceController(req, res) {
+// async function createInvoiceController(req, res) {
 //   try {
-//     const { invoices, server, port, username, password } = req.body;
-//     const company = process.env.COMPANY_NAME;
+//     const {
+//       invoice,
+//       server,
+//       port,
+//       username,
+//       password,
+//       sageDbUser,
+//       sageDbPass,
+//       sageDbHost,
+//       sageDbName,
+//     } = req.body; // add lineItems
 //     const companyId = process.env.COMPANY_ID;
-//     if (!invoices || !Array.isArray(invoices) || invoices.length === 0) {
+//     const company = process.env.COMPANY_NAME;
+//     const lineItems = invoice.LineItems;
+//     if (!invoice || !server || !port || !username || !password) {
 //       return res.status(400).json({
 //         success: false,
-//         message: "Invoices array is required",
+//         message: "Missing required fields",
 //       });
 //     }
 
-//     if (!server || !port || !username || !password) {
-//       return res.status(400).json({
+//     const { CustomerCode, Reference } = invoice;
+
+//     // =============================================================
+//     // A. Check if customer exists
+//     // =============================================================
+//     const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerCode}`;
+//     const customerResponse = await axios.get(customerUrl, {
+//       auth: { username, password },
+//     });
+
+//     if (!customerResponse.data || customerResponse.data.HasError) {
+//       return res.status(404).json({
 //         success: false,
-//         message: "Missing Sage connection fields",
+//         message: "Customer not found in Sage",
+//         data: customerResponse.data,
 //       });
 //     }
 
-//     const results = [];
+//     // =============================================================
+//     // B. Prevent duplicates
+//     // =============================================================
+//     const [existing] = await db.query(
+//       "SELECT id FROM invoice_logs WHERE reference = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
+//       [Reference, CustomerCode]
+//     );
+
+//     if (existing.length > 0) {
+//       return res
+//         .status(409)
+//         .json({ success: false, message: "Duplicate invoice detected" });
+//     }
 
 //     // =============================================================
-//     // PROCESS EACH INVOICE
+//     // C. POST INVOICE TO SAGE 200
 //     // =============================================================
-//     for (const invoice of invoices) {
-//       const { CustomerCode, Reference } = invoice;
+//     const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionPost`;
+//     const payload = { CustomerTransactionPost: invoice };
 
-//       // -------------------------------------------------------------
-//       // (A) Check if customer exists
-//       // -------------------------------------------------------------
-//       const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerCode}`;
-
-//       let customerResponse;
-//       try {
-//         customerResponse = await axios.get(customerUrl, {
-//           auth: { username, password },
-//         });
-//       } catch (err) {
+//     let sageResponse;
+//     try {
+//       const response = await axios.post(postUrl, payload, {
+//         auth: { username, password },
+//       });
+//       sageResponse = response.data;
+//       if (typeof sageResponse === "string" && sageResponse.includes("<Fault")) {
 //         await saveInvoiceLog({
 //           reference: Reference,
 //           companyId,
@@ -362,18 +404,16 @@ async function createInvoiceController(req, res) {
 //           amount: invoice.Amount,
 //           status: "failed",
 //           payload: invoice,
-//           sageResponse: { error: "Customer lookup failed" },
+//           sageResponse,
 //         });
-
-//         results.push({
-//           reference: Reference,
-//           status: "failed",
-//           error: "Customer lookup failed",
+//         return res.status(400).json({
+//           success: false,
+//           message: "Sage returned a Fault response",
+//           data: sageResponse,
 //         });
-//         continue;
 //       }
 
-//       if (!customerResponse.data || customerResponse.data.HasError) {
+//       if (sageResponse.HasError) {
 //         await saveInvoiceLog({
 //           reference: Reference,
 //           companyId,
@@ -381,138 +421,73 @@ async function createInvoiceController(req, res) {
 //           amount: invoice.Amount,
 //           status: "failed",
 //           payload: invoice,
-//           sageResponse: customerResponse.data,
+//           sageResponse,
 //         });
-
-//         results.push({
-//           reference: Reference,
-//           status: "failed",
-//           error: "Customer not found",
+//         return res.status(400).json({
+//           success: false,
+//           message: "Sage returned validation errors",
+//           data: sageResponse,
 //         });
-//         continue;
 //       }
-
-//       // -------------------------------------------------------------
-//       // (B) Check duplicates
-//       // -------------------------------------------------------------
-//       const [existing] = await db.query(
-//         "SELECT id FROM invoice_logs WHERE reference = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
-//         [Reference, CustomerCode]
-//       );
-
-//       if (existing.length > 0) {
-//         results.push({
-//           reference: Reference,
-//           status: "duplicate",
-//           message: "Invoice already posted",
-//         });
-//         continue;
-//       }
-
-//       // -------------------------------------------------------------
-//       // (C) Post invoice
-//       // -------------------------------------------------------------
-//       const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionPost`;
-//       const payload = { CustomerTransactionPost: invoice };
-
-//       let sageResponse;
-//       try {
-//         const response = await axios.post(postUrl, payload, {
-//           auth: { username, password },
-//         });
-
-//         sageResponse = response.data;
-
-//         // Handle XML fault
-//         if (
-//           typeof sageResponse === "string" &&
-//           sageResponse.includes("<Fault")
-//         ) {
-//           await saveInvoiceLog({
-//             reference: Reference,
-//             companyId,
-//             customerCode: CustomerCode,
-//             amount: invoice.Amount,
-//             status: "failed",
-//             payload: invoice,
-//             sageResponse,
-//           });
-
-//           results.push({
-//             reference: Reference,
-//             status: "failed",
-//             error: "Sage Fault response",
-//           });
-//           continue;
-//         }
-
-//         // JSON error
-//         if (sageResponse.HasError) {
-//           await saveInvoiceLog({
-//             reference: Reference,
-//             companyId,
-//             customerCode: CustomerCode,
-//             amount: invoice.Amount,
-//             status: "failed",
-//             payload: invoice,
-//             sageResponse,
-//           });
-
-//           results.push({
-//             reference: Reference,
-//             status: "failed",
-//             error: "Validation errors",
-//           });
-//           continue;
-//         }
-//       } catch (err) {
-//         await saveInvoiceLog({
-//           reference: Reference,
-//           companyId,
-//           customerCode: CustomerCode,
-//           amount: invoice.Amount,
-//           status: "failed",
-//           payload: invoice,
-//           sageResponse: { error: err.message },
-//         });
-
-//         results.push({
-//           reference: Reference,
-//           status: "failed",
-//           error: err.message,
-//         });
-//         continue;
-//       }
-
-//       // -------------------------------------------------------------
-//       // (D) SUCCESS
-//       // -------------------------------------------------------------
+//     } catch (err) {
 //       await saveInvoiceLog({
 //         reference: Reference,
 //         companyId,
 //         customerCode: CustomerCode,
 //         amount: invoice.Amount,
-//         status: "posted",
-//         sageAuditNumber: sageResponse.ID || null,
+//         status: "failed",
 //         payload: invoice,
-//         sageResponse,
+//         sageResponse: { error: err.message },
 //       });
-
-//       results.push({
-//         reference: Reference,
-//         status: "posted",
-//         audit: sageResponse.ID || null,
+//       return res.status(500).json({
+//         success: false,
+//         message: "Error posting to Sage",
+//         error: err.message,
 //       });
 //     }
 
 //     // =============================================================
-//     // END — RETURN BATCH SUMMARY
+//     // D. SUCCESS - Save invoice in logs
 //     // =============================================================
+//     const savedInvoice = await saveInvoiceLog({
+//       reference: Reference,
+//       companyId,
+//       customerCode: CustomerCode,
+//       amount: invoice.Amount,
+//       status: "posted",
+//       sageAuditNumber: sageResponse.ID || null,
+//       payload: invoice,
+//       sageResponse,
+//     });
+
+//     // =============================================================
+//     // E. CREATE LINE ITEMS IN DATABASE
+//     // =============================================================
+//     const match = sageResponse.ID.match(/ID:(\d+)/);
+//     const lineId = 1;
+//     if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
+//       if (match) {
+//         // const id = parseInt(match[1], 10);
+//         const id = 11;
+//         await createInvoiceLines(
+//           id,
+//           lineItems,
+//           sageDbUser,
+//           sageDbPass,
+//           sageDbHost,
+//           sageDbName,
+//           lineId
+//         ); // id from invoice log
+//         console.log(id); // 38
+//       } else {
+//         console.log("ID not found");
+//       }
+//     }
+
 //     return res.status(200).json({
 //       success: true,
-//       message: "Batch processing completed",
-//       total: invoices.length,
-//       summary: results,
+//       message: "Invoice posted successfully",
+//       data: sageResponse,
 //     });
 //   } catch (err) {
 //     return res.status(500).json({
@@ -525,17 +500,7 @@ async function createInvoiceController(req, res) {
 
 async function createBatchInvoiceController(req, res) {
   try {
-    const {
-      invoices,
-      server,
-      port,
-      username,
-      password,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName,
-    } = req.body;
+    const { invoices, server, port, username, password } = req.body;
     const company = process.env.COMPANY_NAME;
     const companyId = process.env.COMPANY_ID;
 
@@ -555,52 +520,61 @@ async function createBatchInvoiceController(req, res) {
 
     const results = [];
 
+    function extractInvoiceReference(response) {
+      if (!response?.ID) return null;
+      const match = response.ID.match(/Reference:([^|]+)/);
+      return match ? match[1].trim() : null;
+    }
+
     // =============================================================
     // PROCESS EACH INVOICE
     // =============================================================
     for (const invoice of invoices) {
-      const { CustomerCode, Reference, LineItems } = invoice;
+      const { CustomerAccountCode, OrderNo, Lines } = invoice;
+
+      let reference = null;
 
       try {
         // ---------------------------------------------------------
         // A. Check if customer exists
         // ---------------------------------------------------------
-        const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerCode}`;
+        const customerUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerFind?module=AR&code=${CustomerAccountCode}`;
         const customerResponse = await axios.get(customerUrl, {
           auth: { username, password },
         });
 
         if (!customerResponse.data || customerResponse.data.HasError) {
-          throw new Error("Customer not found");
+          throw new Error("Customer not found in Sage");
         }
 
         // ---------------------------------------------------------
         // B. Prevent duplicates
         // ---------------------------------------------------------
         const [existing] = await db.query(
-          "SELECT id FROM invoice_logs WHERE reference = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
-          [Reference, CustomerCode]
+          "SELECT id FROM invoice_logs WHERE OrderNo = ? AND customerCode = ? AND status = 'posted' LIMIT 1",
+          [OrderNo, CustomerAccountCode]
         );
 
         if (existing.length > 0) {
           results.push({
-            reference: Reference,
+            orderNo: OrderNo,
             status: "duplicate",
           });
           continue;
         }
 
         // ---------------------------------------------------------
-        // C. Post invoice
+        // C. Post invoice to Sage
         // ---------------------------------------------------------
-        const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionPost`;
-        const payload = { CustomerTransactionPost: invoice };
+        const postUrl = `${server}:${port}/freedom.core/${company}/SDK/Rest/SalesOrderProcessInvoice`;
+        const payload = { SalesOrder: invoice };
 
         const response = await axios.post(postUrl, payload, {
           auth: { username, password },
         });
 
         const sageResponse = response.data;
+        reference = extractInvoiceReference(sageResponse);
 
         if (
           typeof sageResponse === "string" &&
@@ -614,55 +588,42 @@ async function createBatchInvoiceController(req, res) {
         }
 
         // ---------------------------------------------------------
-        // D. Save invoice log
+        // D. Save success log
         // ---------------------------------------------------------
         await saveInvoiceLog({
-          reference: Reference,
+          reference,
           companyId,
-          customerCode: CustomerCode,
-          amount: invoice.Amount,
+          customerCode: CustomerAccountCode,
+          orderNo: OrderNo,
+          amount: calculateTotals(Lines).totalTaxExclusive,
+          amountWithTax: calculateTotals(Lines).totalTaxInclusive,
           status: "posted",
           sageAuditNumber: sageResponse.ID || null,
           payload: invoice,
           sageResponse,
         });
 
-        // ---------------------------------------------------------
-        // E. Create line items (same logic as single controller)
-        // ---------------------------------------------------------
-        if (Array.isArray(LineItems) && LineItems.length > 0) {
-          const match = sageResponse.ID?.match(/ID:(\d+)/);
-          if (match) {
-            const invoiceId = parseInt(match[1], 10);
-            await createInvoiceLines(
-              invoiceId,
-              LineItems,
-              sageDbUser,
-              sageDbPass,
-              sageDbHost,
-              sageDbName
-            );
-          }
-        }
-
         results.push({
-          reference: Reference,
+          orderNo: OrderNo,
+          reference,
           status: "posted",
           audit: sageResponse.ID || null,
         });
       } catch (err) {
         await saveInvoiceLog({
-          reference: Reference,
+          reference,
           companyId,
-          customerCode: CustomerCode,
-          amount: invoice.Amount,
+          customerCode: CustomerAccountCode,
+          orderNo: OrderNo,
+          amount: calculateTotals(invoice.Lines || []).totalTaxExclusive,
+          amountWithTax: calculateTotals(invoice.Lines || []).totalTaxInclusive,
           status: "failed",
           payload: invoice,
           sageResponse: { error: err.message },
         });
 
         results.push({
-          reference: Reference,
+          orderNo: OrderNo,
           status: "failed",
           error: err.message,
         });
@@ -674,7 +635,7 @@ async function createBatchInvoiceController(req, res) {
     // =============================================================
     return res.status(200).json({
       success: true,
-      message: "Batch processing completed",
+      message: "Batch invoice processing completed",
       total: invoices.length,
       summary: results,
     });
@@ -850,11 +811,7 @@ async function getCustomerInvoicesHelper(
   server,
   port,
   authHeader,
-  accountCode,
-  sageDbUser,
-  sageDbPass,
-  sageDbHost,
-  sageDbName
+  accountCode
 ) {
   let page = 1;
   const pageSize = 1000000;
@@ -882,31 +839,31 @@ async function getCustomerInvoicesHelper(
     // Ensure we always work with an array
     const invoices = Array.isArray(txList) ? txList : [txList];
 
-    for (const invoice of invoices) {
-      try {
-        // get invoiceId from Sage / your DB
-        const invoiceId = parseInt(invoice?.ID || invoice?.AutoIndex, 10);
-        if (invoiceId) {
-          // fetch full invoice (lines + details)
-          const fullInvoice = await getFullInvoice(
-            invoiceId,
-            sageDbUser,
-            sageDbPass,
-            sageDbHost,
-            sageDbName
-          );
-          invoice.lines = fullInvoice.lines || [];
-        } else {
-          invoice.lines = [];
-        }
-      } catch (err) {
-        console.error(
-          `Error fetching lines for invoice ${invoice?.ID}:`,
-          err.message
-        );
-        invoice.lines = [];
-      }
-    }
+    // for (const invoice of invoices) {
+    //   try {
+    //     // get invoiceId from Sage / your DB
+    //     const invoiceId = parseInt(invoice?.ID || invoice?.AutoIndex, 10);
+    //     if (invoiceId) {
+    //       // fetch full invoice (lines + details)
+    //       const fullInvoice = await getFullInvoice(
+    //         invoiceId,
+    //         sageDbUser,
+    //         sageDbPass,
+    //         sageDbHost,
+    //         sageDbName
+    //       );
+    //       invoice.lines = fullInvoice.lines || [];
+    //     } else {
+    //       invoice.lines = [];
+    //     }
+    //   } catch (err) {
+    //     console.error(
+    //       `Error fetching lines for invoice ${invoice?.ID}:`,
+    //       err.message
+    //     );
+    //     invoice.lines = [];
+    //   }
+    // }
 
     allInvoices.push(...invoices);
     page++;
@@ -920,16 +877,7 @@ async function getCustomerInvoicesHelper(
 // -------------------------------
 async function getCustomerInvoices(req, res) {
   try {
-    const {
-      server,
-      port,
-      username,
-      password,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName,
-    } = req.body;
+    const { server, port, username, password } = req.body;
     const accountCode = req.params.cuscode;
     if (!server || !port || !username || !password || !accountCode) {
       return res.status(400).json({
@@ -946,11 +894,7 @@ async function getCustomerInvoices(req, res) {
       server,
       port,
       authHeader,
-      accountCode,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName
+      accountCode
     );
 
     return res.json({
@@ -1012,16 +956,7 @@ async function fetchAllCustomers(server, port, authHeader) {
 // -------------------------------
 async function getAllInvoices(req, res) {
   try {
-    const {
-      server,
-      port,
-      username,
-      password,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName,
-    } = req.body;
+    const { server, port, username, password } = req.body;
 
     if (!server || !port || !username || !password) {
       return res.status(400).json({
@@ -1046,11 +981,7 @@ async function getAllInvoices(req, res) {
         server,
         port,
         authHeader,
-        acc,
-        sageDbUser,
-        sageDbPass,
-        sageDbHost,
-        sageDbName
+        acc
       );
 
       allInvoices.push(
@@ -1090,7 +1021,9 @@ async function saveInvoiceLog({
   reference,
   companyId,
   customerCode,
+  orderNo,
   amount,
+  amountWithTax,
   status,
   sageAuditNumber = null,
   payload,
@@ -1098,24 +1031,44 @@ async function saveInvoiceLog({
   batchId = null,
 }) {
   try {
+    const now = new Date();
+
     await db.query(
       `INSERT INTO invoice_logs 
-      (reference,companyId, customerCode, amount, status, sageAuditNumber, payload, sageResponse, batchId)
-      VALUES (?,?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reference,
+      (
         companyId,
+        reference,
         customerCode,
+        OrderNo,
         amount,
+        amountWithTax,
+        status,
+        sageAuditNumber,
+        payload,
+        sageResponse,
+        batchId,
+        createdAt,
+        postedAt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        companyId,
+        reference,
+        customerCode,
+        orderNo,
+        amount,
+        amountWithTax,
         status,
         sageAuditNumber,
         JSON.stringify(payload),
         JSON.stringify(sageResponse),
         batchId,
+        now,
+        status === "posted" ? now : null,
       ]
     );
   } catch (err) {
-    console.error("Log Error:", err);
+    console.error("Invoice Log Error:", err);
   }
 }
 
@@ -1191,19 +1144,20 @@ async function getInvoiceByReference(req, res) {
       });
     }
     const invoiceId = parseInt(foundInvoice?.ID || foundInvoice?.AutoIndex, 10);
-    if (invoiceId) {
-      // fetch full foundInvoice (lines + details)
-      const fullInvoice = await getFullInvoice(
-        invoiceId,
-        sageDbUser,
-        sageDbPass,
-        sageDbHost,
-        sageDbName
-      );
-      foundInvoice.lines = fullInvoice.lines || [];
-    } else {
-      foundInvoice.lines = [];
-    }
+    // if (invoiceId) {
+    //   // fetch full foundInvoice (lines + details)
+    //   const fullInvoice = await getFullInvoice(
+    //     invoiceId,
+    //     sageDbUser,
+    //     sageDbPass,
+    //     sageDbHost,
+    //     sageDbName
+    //   );
+    //   foundInvoice.lines = fullInvoice.lines || [];
+    // } else {
+    //   foundInvoice.lines = [];
+    // }
+
     return res.json({
       success: true,
       account,
