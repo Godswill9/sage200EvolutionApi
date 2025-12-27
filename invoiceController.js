@@ -6,9 +6,9 @@ const { createInvoiceLines, getFullInvoice } = require("./sage200dbController");
 
 // async function createInvoiceController(req, res) {
 //   try {
-//     const { invoice, server, port, username, password } = req.body;
+//     const { invoice, server, port, username, password, company } = req.body;
 //     const companyId = process.env.COMPANY_ID;
-//     const company = process.env.COMPANY_NAME;
+// const company = process.env.COMPANY_NAME;
 //     if (!invoice || !server || !port || !username || !password) {
 //       return res.status(400).json({
 //         success: false,
@@ -180,9 +180,9 @@ function calculateTotals(lines) {
 
 async function createInvoiceController(req, res) {
   try {
-    const { invoice, server, port, username, password } = req.body; // add lineItems
+    const { invoice, server, port, username, password, company } = req.body; // add lineItems
     const companyId = process.env.COMPANY_ID;
-    const company = process.env.COMPANY_NAME;
+    // const company = process.env.COMPANY_NAME;
     if (!invoice || !server || !port || !username || !password) {
       return res.status(400).json({
         success: false,
@@ -343,7 +343,7 @@ async function createInvoiceController(req, res) {
 //       sageDbName,
 //     } = req.body; // add lineItems
 //     const companyId = process.env.COMPANY_ID;
-//     const company = process.env.COMPANY_NAME;
+// const company = process.env.COMPANY_NAME;
 //     const lineItems = invoice.LineItems;
 //     if (!invoice || !server || !port || !username || !password) {
 //       return res.status(400).json({
@@ -500,8 +500,8 @@ async function createInvoiceController(req, res) {
 
 async function createBatchInvoiceController(req, res) {
   try {
-    const { invoices, server, port, username, password } = req.body;
-    const company = process.env.COMPANY_NAME;
+    const { invoices, server, port, username, password, company } = req.body;
+    // const company = process.env.COMPANY_NAME;
     const companyId = process.env.COMPANY_ID;
 
     if (!Array.isArray(invoices) || invoices.length === 0) {
@@ -664,7 +664,7 @@ function stripNamespaces(obj) {
 
 // async function getInvoiceById(req, res) {
 //   try {
-//     const { id, server, port, username, password } = req.body;
+//     const { id, server, port, username, password, company } = req.body;
 
 //     if (!id || !server || !port || !username || !password) {
 //       return res.status(400).json({
@@ -696,9 +696,9 @@ function stripNamespaces(obj) {
 
 async function getAllCustomers(req, res) {
   try {
-    const { server, port, username, password } = req.body;
+    const { server, port, username, password, company } = req.body;
     const { cuscode } = req.params;
-    const company = process.env.COMPANY_NAME;
+    // const company = process.env.COMPANY_NAME;
     if (!server || !port || !username || !password) {
       return res.status(400).json({
         success: false,
@@ -776,7 +776,7 @@ async function xmlToJson(xmlString) {
 //   let page = 1;
 //   const pageSize = 1000000;
 //   let allInvoices = [];
-//   const company = process.env.COMPANY_NAME;
+// const company = process.env.COMPANY_NAME;
 //   while (true) {
 //     const url = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionListByAccountCode?code=${accountCode}&orderBy=TxDate&pageNumber=${page}&pageSize=${pageSize}`;
 
@@ -811,12 +811,13 @@ async function getCustomerInvoicesHelper(
   server,
   port,
   authHeader,
-  accountCode
+  accountCode,
+  company
 ) {
   let page = 1;
   const pageSize = 1000000;
   let allInvoices = [];
-  const company = process.env.COMPANY_NAME;
+  // const company = process.env.COMPANY_NAME;
 
   while (true) {
     const url = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerTransactionListByAccountCode?code=${accountCode}&orderBy=TxDate&pageNumber=${page}&pageSize=${pageSize}`;
@@ -877,7 +878,7 @@ async function getCustomerInvoicesHelper(
 // -------------------------------
 async function getCustomerInvoices(req, res) {
   try {
-    const { server, port, username, password } = req.body;
+    const { server, port, username, password, company } = req.body;
     const accountCode = req.params.cuscode;
     if (!server || !port || !username || !password || !accountCode) {
       return res.status(400).json({
@@ -894,7 +895,8 @@ async function getCustomerInvoices(req, res) {
       server,
       port,
       authHeader,
-      accountCode
+      accountCode,
+      company
     );
 
     return res.json({
@@ -916,11 +918,11 @@ async function getCustomerInvoices(req, res) {
 // -------------------------------
 // Helper: fetch all customers paginated
 // -------------------------------
-async function fetchAllCustomers(server, port, authHeader) {
+async function fetchAllCustomers(server, port, authHeader, company) {
   let customers = [];
   let page = 1;
   const pageSize = 3000;
-  const company = process.env.COMPANY_NAME;
+  // const company = process.env.COMPANY_NAME;
   while (true) {
     const url = `${server}:${port}/freedom.core/${company}/SDK/Rest/CustomerList?pageNumber=${page}&pageSize=${pageSize}`;
 
@@ -956,7 +958,7 @@ async function fetchAllCustomers(server, port, authHeader) {
 // -------------------------------
 async function getAllInvoices(req, res) {
   try {
-    const { server, port, username, password } = req.body;
+    const { server, port, username, password, company } = req.body;
 
     if (!server || !port || !username || !password) {
       return res.status(400).json({
@@ -970,7 +972,12 @@ async function getAllInvoices(req, res) {
     )}`;
 
     // 1️⃣ Fetch all customers
-    const customers = await fetchAllCustomers(server, port, authHeader);
+    const customers = await fetchAllCustomers(
+      server,
+      port,
+      authHeader,
+      company
+    );
 
     let allInvoices = [];
 
@@ -981,7 +988,8 @@ async function getAllInvoices(req, res) {
         server,
         port,
         authHeader,
-        acc
+        acc,
+        company
       );
 
       allInvoices.push(
@@ -1081,24 +1089,14 @@ async function xmlToJson(xmlString) {
 // -------------------------------
 async function getInvoiceByReference(req, res) {
   try {
-    const {
-      server,
-      port,
-      username,
-      password,
-      reference,
-      sageDbUser,
-      sageDbPass,
-      sageDbHost,
-      sageDbName,
-    } = req.body;
+    const { server, port, username, password, reference, company } = req.body;
     const account = req.params.cuscode;
-    const company = process.env.COMPANY_NAME;
+    // const company = process.env.COMPANY_NAME;
     if (!server || !port || !username || !password || !account || !reference) {
       return res.status(400).json({
         success: false,
         message:
-          "Missing required fields: server, port, username, password, account, reference",
+          "Missing required fields: server, port, username, password, company, account, reference",
       });
     }
 
@@ -1183,10 +1181,11 @@ async function fetchInventoryController(req, res) {
       password,
       pageNumber = 1,
       pageSize = 100,
+      company,
     } = req.body;
 
     const companyId = process.env.COMPANY_ID;
-    const company = process.env.COMPANY_NAME;
+    // const company = process.env.COMPANY_NAME;
     if (!server || !port || !company || !username || !password) {
       return res.status(400).json({
         success: false,
@@ -1273,7 +1272,7 @@ async function fetchInventoryController(req, res) {
 
 // async function createInventoryItem(req, res) {
 //   try {
-//     const { server, port, username, password, item } = req.body;
+//     const { server, port, username, password, company, item } = req.body;
 
 //     if (!server || !port || !username || !password || !item?.Code || !item?.Description) {
 //       return res.status(400).json({
